@@ -1,0 +1,4 @@
+{
+  "type": "generic",
+  "url": "jdbc:trino://trino:8080/iceberg/lake"
+}

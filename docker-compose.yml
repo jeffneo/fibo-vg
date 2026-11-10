@@ -1,0 +1,86 @@
+# FIBO (neosemantics) + Iceberg (Virtual Graph over Trino), brought together in one composite database.
+# Local Docker only: nothing is published beyond 127.0.0.1. Start it with ./run.sh up.
+#
+#   graph (Neo4j)                         vg (Neo4j Virtual Graph)          trino          rest            s3
+#   ├─ fibo      FIBO via n10s            └─ neo4j  ──jdbc:trino──────────▶ Iceberg ─────▶ catalog ───────▶ Parquet
+#   └─ fibovg    composite
+#        ├─ fibovg.ontology ─▶ fibo (local alias)
+#        └─ fibovg.lake     ─▶ neo4j@vg (remote alias, bolt)
+name: fibo-vg
+
+services:
+  s3: # object store for the Iceberg files (S3Mock: one container, the bucket made from an environment variable)
+    image: adobe/s3mock:latest
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: warehouse
+
+  rest: # Iceberg REST catalog (the same catalog API as Apache Polaris, with no access control of its own)
+    image: apache/iceberg-rest-fixture:latest
+    depends_on: [s3]
+    environment:
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://s3:9090
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      AWS_ACCESS_KEY_ID: poc
+      AWS_SECRET_ACCESS_KEY: poc
+      AWS_REGION: us-east-1
+
+  trino: # the image's default config: plain HTTP on 8080, no authentication, allow-all access control
+    image: trinodb/trino:484
+    container_name: fibo-vg-trino
+    depends_on: [rest]
+    mem_limit: 2g # the image's JVM takes 80% of the container's memory
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./trino/iceberg.properties:/etc/trino/catalog/iceberg.properties
+
+  vg: # self-managed Virtual Graph: its own Neo4j instance, serving the Iceberg tables as the graph `neo4j`
+    image: neo4j:2026.09.0-enterprise
+    container_name: fibo-vg-vg
+    depends_on: [trino]
+    mem_limit: 2g
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?run ./run.sh, which makes one}
+      NEO4J_ACCEPT_LICENSE_AGREEMENT: ${NEO4J_ACCEPT_LICENSE_AGREEMENT:-eval}
+      NEO4J_internal_virtual__graph_enabled: "true"
+      NEO4J_internal_virtual__graph_home: /nvg_home
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 128M
+      NEO4J_db_transaction_timeout: 120s
+      # bolt offers TLS (self-signed, made by run.sh) because the composite's remote alias must use it; plain bolt still works
+      NEO4J_server_bolt_tls__level: OPTIONAL
+      NEO4J_dbms_ssl_policy_bolt_enabled: "true"
+      NEO4J_dbms_ssl_policy_bolt_base__directory: /ssl/bolt
+      NEO4J_dbms_ssl_policy_bolt_client__auth: NONE
+    ports:
+      - "127.0.0.1:7691:7687"
+      - "127.0.0.1:7478:7474"
+    volumes:
+      - ./.state/vg-bolt:/ssl/bolt:ro
+      - ./vg/home:/nvg_home
+      - ./jdbc/trino-jdbc-484.jar:/var/lib/neo4j/lib/trino-jdbc-484.jar # Trino's own JDBC driver, used as is
+
+  graph: # the "real" graph: FIBO loaded with neosemantics, and the composite database that joins it to the lake.
+    # 5.26 LTS, not 2026.09: n10s has no release that loads whole on 2026.09 (see README). It reaches VG 2026.09 over bolt.
+    image: neo4j:5.26.31-enterprise
+    container_name: fibo-vg-graph
+    depends_on: [vg]
+    mem_limit: 3g
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?run ./run.sh, which makes one}
+      NEO4J_ACCEPT_LICENSE_AGREEMENT: ${NEO4J_ACCEPT_LICENSE_AGREEMENT:-eval}
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 256M
+      NEO4J_dbms_security_procedures_unrestricted: n10s.*
+      # a remote database alias stores the remote user's password encrypted, with a key from this keystore (made by run.sh)
+      NEO4J_dbms_security_keystore_path: /keystore/aliases.p12
+      NEO4J_dbms_security_keystore_password: ${KEYSTORE_PASSWORD:?run ./run.sh, which makes one}
+      NEO4J_dbms_security_key_name: aliases
+    ports:
+      - "127.0.0.1:7690:7687"
+      - "127.0.0.1:7477:7474"
+    volumes:
+      - ./plugins/neosemantics-${N10S_VERSION:-5.26.0}-nojackson.jar:/plugins/neosemantics.jar # made by run.sh, see there
+      - ./.state/aliases.p12:/keystore/aliases.p12:ro

@@ -1,0 +1,18 @@
+# generated or downloaded by run.sh
+.state/
+jdbc/
+plugins/
+fibo/
+*.part
+
+# local secrets or overrides, if anyone adds them (docker compose reads .env)
+.env
+*.local
+
+# local noise
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.idea/
+.vscode/

@@ -1,0 +1,57 @@
+{
+  "catalog": "iceberg",
+  "schema": "lake",
+  "entities": {
+    "nodes": [
+      {
+        "label": "LegalEntity",
+        "table": "legal_entities",
+        "properties": [
+          {"name": "lei", "column": "lei", "type": "STRING"},
+          {"name": "name", "column": "name", "type": "STRING"},
+          {"name": "jurisdiction", "column": "jurisdiction", "type": "STRING"},
+          {"name": "fibo_class", "column": "fibo_class", "type": "STRING"}
+        ],
+        "key": [{"column": "lei"}]
+      },
+      {
+        "label": "Account",
+        "table": "accounts",
+        "properties": [
+          {"name": "account_id", "column": "account_id", "type": "STRING"},
+          {"name": "product", "column": "product", "type": "STRING"},
+          {"name": "balance", "column": "balance", "type": "FLOAT"},
+          {"name": "currency", "column": "currency", "type": "STRING"},
+          {"name": "fibo_class", "column": "fibo_class", "type": "STRING"}
+        ],
+        "key": [{"column": "account_id"}]
+      }
+    ],
+    "relationships": [
+      {
+        "label": "HOLDS",
+        "table": "accounts",
+        "start": {"targetEntity": "LegalEntity", "keys": [{"nodeColumn": "lei", "relationshipColumn": "holder_lei"}]},
+        "end": {"targetEntity": "Account", "keys": [{"nodeColumn": "account_id", "relationshipColumn": "account_id"}]},
+        "properties": [],
+        "key": [{"column": "account_id"}]
+      },
+      {
+        "label": "SERVICED_BY",
+        "table": "accounts",
+        "start": {"targetEntity": "Account", "keys": [{"nodeColumn": "account_id", "relationshipColumn": "account_id"}]},
+        "end": {"targetEntity": "LegalEntity", "keys": [{"nodeColumn": "lei", "relationshipColumn": "servicer_lei"}]},
+        "properties": [],
+        "key": [{"column": "account_id"}]
+      },
+      {
+        "label": "OWNS",
+        "table": "ownership",
+        "start": {"targetEntity": "LegalEntity", "keys": [{"nodeColumn": "lei", "relationshipColumn": "owner_lei"}]},
+        "end": {"targetEntity": "LegalEntity", "keys": [{"nodeColumn": "lei", "relationshipColumn": "owned_lei"}]},
+        "properties": [{"name": "pct", "column": "pct", "type": "FLOAT"}],
+        "key": [{"column": "owner_lei"}, {"column": "owned_lei"}]
+      }
+    ]
+  }
+}
