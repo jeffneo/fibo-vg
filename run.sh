@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # FIBO + Iceberg in one composite database. Local Docker only.
-#   ./run.sh up         everything: object store, Iceberg catalog, Trino (seeded), Virtual Graph, Neo4j with FIBO, the composite database
+#   ./run.sh up         everything: object store, Iceberg catalog, Trino (seeded), Virtual Graph, Neo4j with FIBO, the semantic layer, the composite database
 #   ./run.sh fibo       (re)load FIBO into the `fibo` database with neosemantics (done by `up` when the database is empty)
+#   ./run.sh semantic   (re)build the semantic layer from semantic/mapping.yaml (done by every `up`)
+#   ./run.sh ask CLASS [PROPERTY...]   ask the lake in FIBO's terms, e.g. ./run.sh ask "hedge fund" "has legal name"
 #   ./run.sh check      run the example queries in cypher/examples.cypher against the composite database
 #   ./run.sh shell      a cypher-shell on the composite database
 #   ./run.sh down       remove everything (containers and their data; downloads and .state/ stay)
@@ -76,6 +78,7 @@ load_fibo() {
   cypher fibo-vg-graph system "CREATE DATABASE fibo IF NOT EXISTS WAIT" >/dev/null
   uv run -q --with neo4j python load_fibo.py fibo/ttl
 }
+load_semantic() { uv run -q --with neo4j --with pyyaml python load_semantic.py; }
 
 case "${1:-}" in
   up)
@@ -86,13 +89,16 @@ case "${1:-}" in
     cypher fibo-vg-graph system "CREATE DATABASE fibo IF NOT EXISTS WAIT" >/dev/null
     n=$(cypher fibo-vg-graph fibo --format plain "MATCH (n) RETURN count(n) > 0" | tail -1)
     [ "$n" = TRUE ] || load_fibo
+    load_semantic
     say "creating the composite database"
-    cypher fibo-vg-graph system -P "{vgPassword: '$NEO4J_PASSWORD'}" < cypher/composite.cypher
+    cypher fibo-vg-graph system --format plain -P "{vgPassword: '$NEO4J_PASSWORD'}" < cypher/composite.cypher | sed -n '/^name, /,$p'
     say "up: Neo4j bolt://localhost:7690 (composite: fibovg), Virtual Graph bolt://localhost:7691, Trino http://localhost:8081 (password in $STATE/neo4j-password)"
     ;;
   fibo) load_fibo ;;
+  semantic) load_semantic ;;
+  ask) shift; exec uv run -q --with neo4j python ask.py "$@" ;;
   check) cypher fibo-vg-graph fibovg --format verbose < cypher/examples.cypher ;;
   shell) docker exec -it fibo-vg-graph cypher-shell -u neo4j -p "$NEO4J_PASSWORD" -d fibovg ;;
   down) docker compose down -v ;;
-  *) sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

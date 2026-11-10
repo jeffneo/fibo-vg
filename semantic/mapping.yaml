@@ -1,0 +1,77 @@
+# The semantic layer: what the lake's tables, columns and codes mean in FIBO.
+# Loaded by load_semantic.py into the database `semantic` (the shard fibovg.semantic). That script also reads the
+# physical layer (the lake's columns, from Trino's information_schema) and VG's graph mapping (vg/home/schema.json),
+# and checks every name here against both, and every IRI against the FIBO database. A typo fails the load.
+#
+# Three kinds of mapping, in the R2RML sense:
+#   nodes.<label>.class                  every row of the table is an instance of this class
+#   nodes.<label>.classRules             rows whose column has a given value are instances of a more specific class
+#   nodes.<label>.properties.<property>  a column means this FIBO property (or holds a value of this FIBO class)
+#   relationships.<type>                 a relationship means this FIBO object property, and its ends play these roles
+
+prefixes:
+  cmns-org: https://www.omg.org/spec/Commons/Organizations/
+  cmns-rga: https://www.omg.org/spec/Commons/RegulatoryAgencies/
+  fibo-be-corp: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/CorporateBodies/
+  fibo-be-lei: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LEIEntities/
+  fibo-be-ptr: https://spec.edmcouncil.org/fibo/ontology/BE/Partnerships/Partnerships/
+  fibo-be-plc: https://spec.edmcouncil.org/fibo/ontology/BE/PrivateLimitedCompanies/PrivateLimitedCompanies/
+  fibo-be-trust: https://spec.edmcouncil.org/fibo/ontology/BE/Trusts/Trusts/
+  fibo-fbc-fse: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/FinancialServicesEntities/
+  fibo-fbc-fps: https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/FinancialProductsAndServices/
+  fibo-fbc-acct: https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/
+  fibo-fnd-cur: https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/CurrencyAmount/
+  fibo-fnd-own: https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Ownership/
+  fibo-fnd-rel: https://spec.edmcouncil.org/fibo/ontology/FND/Relations/Relations/
+  fibo-sec-fund: https://spec.edmcouncil.org/fibo/ontology/SEC/Funds/Funds/
+
+nodes:
+  LegalEntity: # table iceberg.lake.legal_entities
+    class: cmns-org:LegalEntity
+    classRules:
+      column: entity_type
+      values:
+        BANK: fibo-fbc-fse:CommercialBank
+        BD: fibo-fbc-fps:BrokerDealer
+        HOLDCO: fibo-fbc-fse:HoldingCompany
+        MF: fibo-sec-fund:MutualFund
+        ETF: fibo-sec-fund:ExchangeTradedFund
+        HF: fibo-sec-fund:HedgeFund
+        LLC: fibo-be-plc:LimitedLiabilityCompany
+        PENSION: fibo-sec-fund:PensionFund
+        TRUST: fibo-be-trust:Trust
+        INS: fibo-fbc-fse:InsuranceCompany
+        PRIVCO: fibo-be-corp:PrivatelyHeldCompany
+        CU: fibo-fbc-fse:CreditUnion
+    properties:
+      lei: { valueClass: fibo-be-lei:LegalEntityIdentifier }
+      name: { property: fibo-fnd-rel:hasLegalName }
+      jurisdiction: { property: fibo-be-corp:isIncorporatedIn, valueClass: cmns-rga:Jurisdiction, note: "a code (ISO 3166), not a jurisdiction individual" }
+
+  Account: # table iceberg.lake.accounts
+    class: fibo-fbc-acct:Account
+    classRules:
+      column: product
+      values:
+        custody: { class: fibo-fbc-acct:InvestmentAccount, note: "FIBO has no custody account class; investment account is the nearest" }
+        prime: fibo-fbc-acct:BrokerageAccount
+        brokerage: fibo-fbc-acct:BrokerageAccount
+        operating: fibo-fbc-acct:DemandDepositAccount
+        deposit: fibo-fbc-acct:DepositAccount
+    properties:
+      account_id: { valueClass: fibo-fbc-acct:AccountIdentifier }
+      balance: { property: fibo-fbc-acct:hasBalance }
+      currency: { property: fibo-fnd-cur:hasCurrency, note: "an ISO 4217 code" }
+
+relationships:
+  HOLDS: # (LegalEntity)-[:HOLDS]->(Account), from accounts.holder_lei
+    property: fibo-fbc-acct:hasPrimaryAccountHolder
+    inverse: true # FIBO's direction is account -> holder
+    startRole: fibo-fbc-acct:AccountHolder
+  SERVICED_BY: # (Account)-[:SERVICED_BY]->(LegalEntity), from accounts.servicer_lei
+    endRole: fibo-fbc-acct:AccountProvider
+    note: no FIBO property in the loaded modules says who provides an account; the end plays the account provider role
+  OWNS: # (LegalEntity)-[:OWNS]->(LegalEntity), from table ownership
+    property: fibo-fnd-own:owns
+    properties:
+      pct: { property: fibo-be-lei:hasOwnershipPercentage }

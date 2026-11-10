@@ -10,7 +10,7 @@
           {"name": "lei", "column": "lei", "type": "STRING"},
           {"name": "name", "column": "name", "type": "STRING"},
           {"name": "jurisdiction", "column": "jurisdiction", "type": "STRING"},
-          {"name": "fibo_class", "column": "fibo_class", "type": "STRING"}
+          {"name": "entity_type", "column": "entity_type", "type": "STRING"}
         ],
         "key": [{"column": "lei"}]
       },
@@ -21,8 +21,7 @@
           {"name": "account_id", "column": "account_id", "type": "STRING"},
           {"name": "product", "column": "product", "type": "STRING"},
           {"name": "balance", "column": "balance", "type": "FLOAT"},
-          {"name": "currency", "column": "currency", "type": "STRING"},
-          {"name": "fibo_class", "column": "fibo_class", "type": "STRING"}
+          {"name": "currency", "column": "currency", "type": "STRING"}
         ],
         "key": [{"column": "account_id"}]
       }
